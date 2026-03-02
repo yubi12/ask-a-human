@@ -119,7 +119,7 @@ mcpServer.registerTool("ask_human", {
     idempotentHint: false,
     openWorldHint: true,
   },
-}, async ({ question, context, options }) => {
+}, async ({ question, context, options }, extra) => {
   // Build Block Kit message
   const blocks: KnownBlock[] = [
     {
@@ -177,7 +177,7 @@ mcpServer.registerTool("ask_human", {
     blocks,
   });
 
-  const messageTs = result.ts;
+  const messageTs = result.ts!;
   if (!messageTs) {
     return {
       content: [
@@ -190,9 +190,21 @@ mcpServer.registerTool("ask_human", {
     };
   }
 
-  // Wait for reply with keepalives and optional timeout
+  // Wait for reply with keepalives, cancellation, and optional timeout
   const reply = await new Promise<string>((resolve) => {
     const pending: PendingQuestion = { resolve };
+
+    function cleanup(sentinel: string) {
+      if (pending.timeoutId) clearTimeout(pending.timeoutId);
+      if (pending.keepaliveId) clearInterval(pending.keepaliveId);
+      pendingQuestions.delete(messageTs);
+      resolve(sentinel);
+    }
+
+    // Handle client-initiated cancellation via AbortSignal
+    extra.signal.addEventListener("abort", () => cleanup("__CANCELLED__"), {
+      once: true,
+    });
 
     // Progress keepalives every 25 seconds
     pending.keepaliveId = setInterval(() => {
@@ -204,15 +216,23 @@ mcpServer.registerTool("ask_human", {
 
     // Optional timeout
     if (ASK_TIMEOUT_MS > 0) {
-      pending.timeoutId = setTimeout(() => {
-        if (pending.keepaliveId) clearInterval(pending.keepaliveId);
-        pendingQuestions.delete(messageTs);
-        resolve("__TIMEOUT__");
-      }, ASK_TIMEOUT_MS);
+      pending.timeoutId = setTimeout(() => cleanup("__TIMEOUT__"), ASK_TIMEOUT_MS);
     }
 
     pendingQuestions.set(messageTs, pending);
   });
+
+  if (reply === "__CANCELLED__") {
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: "Request was cancelled by the client.",
+        },
+      ],
+      isError: true,
+    };
+  }
 
   if (reply === "__TIMEOUT__") {
     return {
