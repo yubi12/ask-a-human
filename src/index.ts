@@ -2,7 +2,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { App } from "@slack/bolt";
+import { App, LogLevel } from "@slack/bolt";
 import type { KnownBlock } from "@slack/types";
 import { z } from "zod";
 
@@ -27,6 +27,14 @@ if (!SLACK_CHANNEL_ID) {
   process.exit(1);
 }
 
+// --- Helpers ---
+
+const BLOCK_KIT_TEXT_LIMIT = 2900;
+
+function truncate(text: string, max = BLOCK_KIT_TEXT_LIMIT): string {
+  return text.length > max ? `${text.slice(0, max)}... (truncated)` : text;
+}
+
 // --- Pending questions tracking ---
 
 interface PendingQuestion {
@@ -43,6 +51,11 @@ const slackApp = new App({
   token: SLACK_BOT_TOKEN,
   appToken: SLACK_APP_TOKEN,
   socketMode: true,
+  logLevel: LogLevel.WARN,
+});
+
+slackApp.error(async (error) => {
+  console.error("Unhandled Slack error:", error);
 });
 
 // Listen for all messages — filter for thread replies to our pending questions
@@ -80,15 +93,16 @@ slackApp.message(async ({ message }) => {
 
 // --- MCP server setup ---
 
-const mcpServer = new McpServer({
-  name: "ask-a-human",
-  version: "0.1.0",
-});
+const mcpServer = new McpServer(
+  { name: "ask-a-human", version: "0.1.0" },
+  { capabilities: { logging: {}, tools: {} } },
+);
 
-mcpServer.tool(
-  "ask_human",
-  "Pause execution and ask a human a question via Slack. The human replies in a Slack thread and execution resumes with their answer.",
-  {
+mcpServer.registerTool("ask_human", {
+  title: "Ask a Human",
+  description:
+    "Pause execution and ask a human a question via Slack. The human replies in a Slack thread and execution resumes with their answer.",
+  inputSchema: {
     question: z.string().describe("The specific question to ask the human"),
     context: z
       .string()
@@ -99,118 +113,123 @@ mcpServer.tool(
       .optional()
       .describe("Predefined choices when applicable"),
   },
-  async ({ question, context, options }) => {
-    // Build Block Kit message
-    const blocks: KnownBlock[] = [
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `:robot_face: *Claude Code needs your input*${SLACK_USER_ID ? `\n<@${SLACK_USER_ID}>` : ""}`,
-        },
+  annotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
+  },
+}, async ({ question, context, options }) => {
+  // Build Block Kit message
+  const blocks: KnownBlock[] = [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `:robot_face: *Claude Code needs your input*${SLACK_USER_ID ? `\n<@${SLACK_USER_ID}>` : ""}`,
       },
-      { type: "divider" },
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `*Question:*\n${question}`,
-        },
+    },
+    { type: "divider" },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Question:*\n${truncate(question)}`,
       },
-    ];
+    },
+  ];
 
-    if (context) {
-      blocks.push({
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `*Context:*\n${context}`,
-        },
-      });
-    }
-
-    if (options && options.length > 0) {
-      const optionsList = options.map((o, i) => `${i + 1}. ${o}`).join("\n");
-      blocks.push({
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `*Options:*\n${optionsList}`,
-        },
-      });
-    }
-
+  if (context) {
     blocks.push({
-      type: "context",
-      elements: [
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Context:*\n${truncate(context)}`,
+      },
+    });
+  }
+
+  if (options && options.length > 0) {
+    const optionsList = options.map((o, i) => `${i + 1}. ${o}`).join("\n");
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Options:*\n${truncate(optionsList)}`,
+      },
+    });
+  }
+
+  blocks.push({
+    type: "context",
+    elements: [
+      {
+        type: "mrkdwn",
+        text: ":thread: Reply in this thread to respond",
+      },
+    ],
+  });
+
+  // Post message to Slack
+  const result = await slackApp.client.chat.postMessage({
+    channel: SLACK_CHANNEL_ID,
+    text: `Claude Code needs your input: ${question}`,
+    blocks,
+  });
+
+  const messageTs = result.ts;
+  if (!messageTs) {
+    return {
+      content: [
         {
-          type: "mrkdwn",
-          text: ":thread: Reply in this thread to respond",
+          type: "text" as const,
+          text: "Error: Failed to post message to Slack (no message timestamp returned)",
         },
       ],
-    });
-
-    // Post message to Slack
-    const result = await slackApp.client.chat.postMessage({
-      channel: SLACK_CHANNEL_ID,
-      text: `Claude Code needs your input: ${question}`,
-      blocks,
-    });
-
-    const messageTs = result.ts;
-    if (!messageTs) {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: "Error: Failed to post message to Slack (no message timestamp returned)",
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    // Wait for reply with keepalives and optional timeout
-    const reply = await new Promise<string>((resolve) => {
-      const pending: PendingQuestion = { resolve };
-
-      // Progress keepalives every 25 seconds
-      pending.keepaliveId = setInterval(() => {
-        mcpServer.server.sendLoggingMessage({
-          level: "info",
-          data: "Waiting for human reply on Slack...",
-        });
-      }, 25_000);
-
-      // Optional timeout
-      if (ASK_TIMEOUT_MS > 0) {
-        pending.timeoutId = setTimeout(() => {
-          if (pending.keepaliveId) clearInterval(pending.keepaliveId);
-          pendingQuestions.delete(messageTs);
-          resolve("__TIMEOUT__");
-        }, ASK_TIMEOUT_MS);
-      }
-
-      pendingQuestions.set(messageTs, pending);
-    });
-
-    if (reply === "__TIMEOUT__") {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Timed out after ${ASK_TIMEOUT_MS / 1000 / 60} minutes waiting for a human reply.`,
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    return {
-      content: [{ type: "text" as const, text: reply }],
+      isError: true,
     };
-  },
-);
+  }
+
+  // Wait for reply with keepalives and optional timeout
+  const reply = await new Promise<string>((resolve) => {
+    const pending: PendingQuestion = { resolve };
+
+    // Progress keepalives every 25 seconds
+    pending.keepaliveId = setInterval(() => {
+      mcpServer.sendLoggingMessage({
+        level: "info",
+        data: "Waiting for human reply on Slack...",
+      });
+    }, 25_000);
+
+    // Optional timeout
+    if (ASK_TIMEOUT_MS > 0) {
+      pending.timeoutId = setTimeout(() => {
+        if (pending.keepaliveId) clearInterval(pending.keepaliveId);
+        pendingQuestions.delete(messageTs);
+        resolve("__TIMEOUT__");
+      }, ASK_TIMEOUT_MS);
+    }
+
+    pendingQuestions.set(messageTs, pending);
+  });
+
+  if (reply === "__TIMEOUT__") {
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `Timed out after ${ASK_TIMEOUT_MS / 1000 / 60} minutes waiting for a human reply.`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  return {
+    content: [{ type: "text" as const, text: reply }],
+  };
+});
 
 // --- Startup sequence ---
 
@@ -227,7 +246,7 @@ async function main() {
 
 // --- Graceful shutdown ---
 
-process.on("SIGINT", async () => {
+async function shutdown() {
   console.error("Shutting down...");
 
   // Clean up all pending questions
@@ -241,7 +260,10 @@ process.on("SIGINT", async () => {
   await slackApp.stop();
   await mcpServer.close();
   process.exit(0);
-});
+}
+
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
 
 main().catch((err) => {
   console.error("Fatal error:", err);
