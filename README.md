@@ -1,85 +1,60 @@
 # ask-a-human
 
-An MCP server that lets Claude Code pause execution, ask a human a question via Discord, and resume when they reply in the thread.
-
-Perfect for autonomous agent workflows that occasionally need a human decision.
+An MCP server that lets Claude Code pause and ask you a question on Discord. You reply in a thread, and Claude continues with your answer.
 
 ## How it works
 
-```
-Claude Code ──stdio──▶ ask-a-human MCP server ──Gateway WebSocket──▶ Discord
-                                                                       │
-                          reply returned ◀── thread reply ◀────────────┘
-```
-
-1. Claude calls the `ask_human` tool with a question
-2. A formatted embed posts to your Discord channel
-3. Execution blocks (with keepalive pings every 25s so the connection stays alive)
-4. A human replies in the Discord thread
-5. The tool resolves with the reply text and Claude continues
+1. Claude Code calls the `ask_human` tool with a question
+2. The bot posts the question to your Discord channel and @mentions you
+3. A thread is created for the question
+4. Claude Code waits until you reply in the thread
+5. Your reply is returned to Claude and it continues working
 
 ## Setup
 
-### 1. Create a Discord Application
+### 1. Create a Discord bot
 
-1. Go to the [Discord Developer Portal](https://discord.com/developers/applications) and click **New Application**
-2. Name it (e.g., "Ask a Human") and click **Create**
+1. Go to the [Discord Developer Portal](https://discord.com/developers/applications)
+2. Click **New Application** and give it a name
+3. Go to **Bot** in the sidebar
+4. Click **Reset Token** and copy it — this is your `DISCORD_BOT_TOKEN`
+5. Enable **Message Content Intent** (scroll down on the Bot page)
+6. Go to **OAuth2 > URL Generator**
+7. Check the `bot` scope
+8. Check these permissions: **Send Messages**, **Create Public Threads**, **Read Message History**, **Embed Links**
+9. Copy the generated URL and open it to invite the bot to your server
 
-### 2. Create a Bot
+### 2. Get your Discord IDs
 
-1. Go to **Bot** in the left sidebar
-2. Click **Reset Token** and copy the token — this is your `DISCORD_BOT_TOKEN`
-3. Under **Privileged Gateway Intents**, enable **Message Content Intent**
+1. Open Discord Settings > Advanced > enable **Developer Mode**
+2. Right-click the channel where you want questions posted > **Copy Channel ID** — this is your `DISCORD_CHANNEL_ID`
+3. Right-click your username > **Copy User ID** — this is your `DISCORD_USER_ID`
 
-### 3. Set Bot Permissions
+### 3. Add to Claude Code
 
-Go to **OAuth2** > **URL Generator**:
-
-1. Under **Scopes**, select `bot`
-2. Under **Bot Permissions**, select:
-   - `Send Messages` — post questions
-   - `Create Public Threads` — create reply threads
-   - `Read Message History` — read thread replies
-   - `Embed Links` — send rich embeds
-3. Copy the generated URL and open it in your browser to invite the bot to your server
-
-### 4. Get Channel and User IDs
-
-1. In Discord, go to **Settings** > **Advanced** and enable **Developer Mode**
-2. Right-click the target channel > **Copy Channel ID** — this is your `DISCORD_CHANNEL_ID`
-3. Right-click your username > **Copy User ID** — this is your `DISCORD_USER_ID` (optional, for @mentions)
-
-### 5. Add to Claude Code
-
-```bash
-claude mcp add ask-a-human -- npx ask-a-human
-
-# Or with a specific path
-claude mcp add ask-a-human -- node /path/to/ask-a-human/dist/index.js
+```sh
+claude mcp add \
+  -e DISCORD_BOT_TOKEN=your-bot-token \
+  -e DISCORD_CHANNEL_ID=your-channel-id \
+  -e DISCORD_USER_ID=your-user-id \
+  ask-a-human -- npx ask-a-human
 ```
 
-Set the environment variables (via `.env` file, shell export, or Claude Code MCP config):
+That's it. Claude Code will now have access to the `ask_human` tool.
 
-```bash
-DISCORD_BOT_TOKEN=...          # Bot token from Developer Portal
-DISCORD_CHANNEL_ID=...         # Target channel ID
-DISCORD_USER_ID=...            # Optional: your user ID for @mentions
-ASK_TIMEOUT_MS=1800000         # Optional: timeout in ms (default: 30 min, 0 = no timeout)
-```
+## Tool
 
-## Tool: `ask_human`
-
-### Parameters
+### `ask_human`
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `question` | string | Yes | The question to ask |
-| `context` | string | No | Background context |
-| `options` | string[] | No | Predefined choices |
+| `context` | string | No | Background context to help you understand the question |
+| `options` | string[] | No | Predefined choices when applicable |
 
-### Example
+The question is posted as a rich embed in Discord with an @mention. If `context` or `options` are provided, they appear as additional fields in the embed.
 
-Claude might call:
+**Example:**
 
 ```json
 {
@@ -89,36 +64,26 @@ Claude might call:
 }
 ```
 
-This posts a rich embed to Discord and waits for a thread reply.
+## Configuration
 
-### Returns
+| Environment Variable | Required | Default | Description |
+|---------------------|----------|---------|-------------|
+| `DISCORD_BOT_TOKEN` | Yes | — | Your Discord bot token |
+| `DISCORD_CHANNEL_ID` | Yes | — | Channel ID where questions are posted |
+| `DISCORD_USER_ID` | No | — | Your user ID for @mentions |
+| `ASK_TIMEOUT_MS` | No | `1800000` | Timeout in milliseconds (default: 30 min, `0` for no timeout) |
 
-- **On reply**: The human's message text
-- **On timeout**: Error with timeout message
+## Edge cases
 
-## Development
-
-```bash
-# Install dependencies
-npm install
-
-# Run directly with tsx
-npm run dev
-
-# Build
-npm run build
-
-# Run built version
-npm start
-```
-
-## Edge Cases
-
-- **Multiple replies**: The first thread reply resolves the question; subsequent replies are ignored
+- **Multiple replies**: First thread reply wins; subsequent replies are ignored
 - **Empty messages**: Returned as `(empty message)`
-- **Bot messages**: Filtered out (won't accidentally reply to itself)
+- **Bot messages**: Filtered out automatically
 - **Disconnections**: Discord.js auto-reconnects; pending questions persist in memory
-- **Timeout**: Configurable via `ASK_TIMEOUT_MS`; defaults to 30 minutes
+- **Shutdown**: Pending questions return an error; cleanup is graceful on SIGINT/SIGTERM
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and testing instructions.
 
 ## License
 
