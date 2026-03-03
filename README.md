@@ -2,7 +2,17 @@
 
 An MCP server that lets Claude Code pause and ask you a question on Discord. You reply in a thread, and Claude continues with your answer.
 
-> **Roadmap:** Slack and Telegram support coming March 3, 2026.
+**Roadmap:**
+- Slack and Telegram support — March 3, 2026
+- Support for other coding agents and harnesses — March 6, 2026
+
+## Why
+
+This isn't a chat interface for Claude Code. It's an escape hatch for fully autonomous workflows.
+
+When you let Claude Code run on its own — refactoring a codebase, building a feature end-to-end, debugging a complex issue — it will occasionally hit a fork in the road: a trade-off you didn't anticipate, a design decision with no obvious right answer, or a critical juncture where moving forward without your input could mean wasted work. In those moments, Claude can choose to reach out to you on Discord, get your steer, and continue — rather than guessing wrong or stopping entirely.
+
+The goal is to let you stay away from the terminal while Claude works, and only get pulled in when it genuinely matters.
 
 ## How it works
 
@@ -73,7 +83,7 @@ The question is posted as a rich embed in Discord with an @mention. If `context`
 | `DISCORD_BOT_TOKEN` | Yes | — | Your Discord bot token |
 | `DISCORD_CHANNEL_ID` | Yes | — | Channel ID where questions are posted |
 | `DISCORD_USER_ID` | No | — | Your user ID for @mentions |
-| `ASK_TIMEOUT_MS` | No | `1800000` | Timeout in milliseconds (default: 30 min, `0` for no timeout) |
+| `ASK_TIMEOUT_MS` | No | `18000000` | Timeout in milliseconds (default: 5 hours, `0` for no timeout) |
 
 ## Edge cases
 
