@@ -2,6 +2,8 @@
 
 An MCP server that lets Claude Code pause and ask you a question on Discord. You reply in a thread, and Claude continues with your answer.
 
+> **Roadmap:** Slack and Telegram support coming March 3, 2026.
+
 ## How it works
 
 1. Claude Code calls the `ask_human` tool with a question
