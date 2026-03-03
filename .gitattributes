@@ -1,0 +1,4 @@
+*.ts linguist-language=TypeScript
+package-lock.json linguist-generated
+pnpm-lock.yaml linguist-generated
+package.json linguist-generated
