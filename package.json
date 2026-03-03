@@ -1,6 +1,6 @@
 {
   "name": "ask-a-human",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP server that lets Claude Code pause and ask humans for input via Discord",
   "type": "module",
   "main": "dist/index.js",
@@ -25,6 +25,14 @@
     "model-context-protocol"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yubi12/ask-a-human.git"
+  },
+  "homepage": "https://github.com/yubi12/ask-a-human#readme",
+  "bugs": {
+    "url": "https://github.com/yubi12/ask-a-human/issues"
+  },
   "engines": {
     "node": ">=20.0.0"
   },
