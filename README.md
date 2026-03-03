@@ -12,7 +12,7 @@ This isn't a chat interface for Claude Code. It's an escape hatch for fully auto
 
 When you let Claude Code run on its own refactoring a codebase, building a feature end-to-end, or debugging a complex issue it will occasionally hit a fork in the road: a trade-off you didn't anticipate, a design decision with no obvious right answer, or a critical juncture where moving forward without your input could mean wasted work. In those moments, Claude can choose to reach out to you on Discord, get your steer, and continue rather than guessing wrong or stopping entirely. It's meant for the agent to reach you if it really needs to, and not for every little thing.
 
-The goal is to let you stay away from the terminal while Claude works, and only get pulled in when it genuinely matters.
+The goal is to let you stay away from the terminal while Claude works, and only get pulled in (via Discord!) when it genuinely matters.
 
 ## How it works
 
