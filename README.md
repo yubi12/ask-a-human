@@ -45,11 +45,7 @@ The goal is to let you stay away from the terminal while Claude works, and only 
 ### 3. Add to Claude Code
 
 ```sh
-claude mcp add \
-  -e DISCORD_BOT_TOKEN=your-bot-token \
-  -e DISCORD_CHANNEL_ID=your-channel-id \
-  -e DISCORD_USER_ID=your-user-id \
-  ask-a-human -- npx ask-a-human
+claude mcp add ask-a-human -e DISCORD_BOT_TOKEN=your-bot-token -e DISCORD_CHANNEL_ID=your-channel-id -e DISCORD_USER_ID=your-user-id -- npx ask-a-human
 ```
 
 That's it. Claude Code will now have access to the `ask_human` tool.
