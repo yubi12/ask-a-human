@@ -2,92 +2,92 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { App, LogLevel } from "@slack/bolt";
-import type { KnownBlock } from "@slack/types";
+import {
+  Client,
+  EmbedBuilder,
+  Events,
+  GatewayIntentBits,
+  ThreadAutoArchiveDuration,
+} from "discord.js";
+import type { GuildTextBasedChannel } from "discord.js";
 import { z } from "zod";
 
 // --- Environment validation ---
 
-const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN;
-const SLACK_APP_TOKEN = process.env.SLACK_APP_TOKEN;
-const SLACK_CHANNEL_ID = process.env.SLACK_CHANNEL_ID;
-const SLACK_USER_ID = process.env.SLACK_USER_ID;
+const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
+const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
+const DISCORD_USER_ID = process.env.DISCORD_USER_ID;
 const ASK_TIMEOUT_MS = Number(process.env.ASK_TIMEOUT_MS) || 30 * 60 * 1000; // 30 minutes default
 
-if (!SLACK_BOT_TOKEN) {
-  console.error("Missing SLACK_BOT_TOKEN (xoxb-...)");
+if (!DISCORD_BOT_TOKEN) {
+  console.error("Missing DISCORD_BOT_TOKEN");
   process.exit(1);
 }
-if (!SLACK_APP_TOKEN) {
-  console.error("Missing SLACK_APP_TOKEN (xapp-...)");
-  process.exit(1);
-}
-if (!SLACK_CHANNEL_ID) {
-  console.error("Missing SLACK_CHANNEL_ID");
+if (!DISCORD_CHANNEL_ID) {
+  console.error("Missing DISCORD_CHANNEL_ID");
   process.exit(1);
 }
 
 // --- Helpers ---
 
-const BLOCK_KIT_TEXT_LIMIT = 2900;
+const EMBED_DESCRIPTION_LIMIT = 4000;
+const EMBED_FIELD_VALUE_LIMIT = 1000;
+const THREAD_NAME_LIMIT = 100;
 
-function truncate(text: string, max = BLOCK_KIT_TEXT_LIMIT): string {
-  return text.length > max ? `${text.slice(0, max)}... (truncated)` : text;
+function truncate(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}...` : text;
 }
+
+// Sentinels use Symbols to prevent collision with user input
+const SENTINEL_CANCELLED = Symbol("cancelled");
+const SENTINEL_TIMEOUT = Symbol("timeout");
+const SENTINEL_SHUTDOWN = Symbol("shutdown");
+
+type QuestionResult = string | typeof SENTINEL_CANCELLED | typeof SENTINEL_TIMEOUT | typeof SENTINEL_SHUTDOWN;
 
 // --- Pending questions tracking ---
 
 interface PendingQuestion {
-  resolve: (reply: string) => void;
+  resolve: (reply: QuestionResult) => void;
   timeoutId?: ReturnType<typeof setTimeout>;
   keepaliveId?: ReturnType<typeof setInterval>;
+  abortHandler?: () => void;
 }
 
 const pendingQuestions = new Map<string, PendingQuestion>();
 
-// --- Slack app setup (Socket Mode) ---
+// --- Discord client setup ---
 
-const slackApp = new App({
-  token: SLACK_BOT_TOKEN,
-  appToken: SLACK_APP_TOKEN,
-  socketMode: true,
-  logLevel: LogLevel.WARN,
+const discordClient = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+  ],
 });
 
-slackApp.error(async (error) => {
-  console.error("Unhandled Slack error:", error);
-});
+// Cached channel reference, set during startup
+let targetChannel: GuildTextBasedChannel;
 
-// Listen for all messages — filter for thread replies to our pending questions
-slackApp.message(async ({ message }) => {
-  // Only process actual user messages in threads
-  if (
-    message.subtype !== undefined ||
-    !("thread_ts" in message) ||
-    !message.thread_ts ||
-    "bot_id" in message
-  ) {
-    return;
-  }
+// Listen for thread replies to pending questions
+discordClient.on(Events.MessageCreate, (message) => {
+  // Ignore bot messages
+  if (message.author.bot) return;
 
-  // Ignore messages that are thread parents (ts === thread_ts)
-  if (message.ts === message.thread_ts) {
-    return;
-  }
+  // Only process messages in threads
+  if (!message.channel.isThread()) return;
 
-  const pending = pendingQuestions.get(message.thread_ts);
-  if (!pending) {
-    return;
-  }
+  const pending = pendingQuestions.get(message.channelId);
+  if (!pending) return;
 
   // First reply resolves; subsequent replies are ignored
-  const replyText = ("text" in message && message.text) || "(empty message)";
+  const replyText = message.content || "(empty message)";
 
-  // Clean up timers
+  // Clean up timers and abort listener
   if (pending.timeoutId) clearTimeout(pending.timeoutId);
   if (pending.keepaliveId) clearInterval(pending.keepaliveId);
 
-  pendingQuestions.delete(message.thread_ts);
+  pendingQuestions.delete(message.channelId);
   pending.resolve(replyText);
 });
 
@@ -101,7 +101,7 @@ const mcpServer = new McpServer(
 mcpServer.registerTool("ask_human", {
   title: "Ask a Human",
   description:
-    "Pause execution and ask a human a question via Slack. The human replies in a Slack thread and execution resumes with their answer.",
+    "Pause execution and ask a human a question via Discord. The human replies in a Discord thread and execution resumes with their answer.",
   inputSchema: {
     question: z.string().describe("The specific question to ask the human"),
     context: z
@@ -120,109 +120,73 @@ mcpServer.registerTool("ask_human", {
     openWorldHint: true,
   },
 }, async ({ question, context, options }, extra) => {
-  // Build Block Kit message
-  const blocks: KnownBlock[] = [
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `:robot_face: *Claude Code needs your input*${SLACK_USER_ID ? `\n<@${SLACK_USER_ID}>` : ""}`,
-      },
-    },
-    { type: "divider" },
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `*Question:*\n${truncate(question)}`,
-      },
-    },
-  ];
+  // Build embed
+  const embed = new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setTitle("Claude Code needs your input")
+    .setDescription(truncate(question, EMBED_DESCRIPTION_LIMIT))
+    .setFooter({ text: "Reply in this thread to respond" });
 
   if (context) {
-    blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `*Context:*\n${truncate(context)}`,
-      },
+    embed.addFields({
+      name: "Context",
+      value: truncate(context, EMBED_FIELD_VALUE_LIMIT),
     });
   }
 
   if (options && options.length > 0) {
     const optionsList = options.map((o, i) => `${i + 1}. ${o}`).join("\n");
-    blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `*Options:*\n${truncate(optionsList)}`,
-      },
+    embed.addFields({
+      name: "Options",
+      value: truncate(optionsList, EMBED_FIELD_VALUE_LIMIT),
     });
   }
 
-  blocks.push({
-    type: "context",
-    elements: [
-      {
-        type: "mrkdwn",
-        text: ":thread: Reply in this thread to respond",
-      },
-    ],
+  // Post message — mention in content (not embed) so the user gets pinged
+  const sentMessage = await targetChannel.send({
+    content: DISCORD_USER_ID ? `<@${DISCORD_USER_ID}>` : undefined,
+    embeds: [embed],
   });
 
-  // Post message to Slack
-  const result = await slackApp.client.chat.postMessage({
-    channel: SLACK_CHANNEL_ID,
-    text: `Claude Code needs your input: ${question}`,
-    blocks,
+  // Create a thread off the message (truncate the full name to fit the limit)
+  const thread = await sentMessage.startThread({
+    name: truncate(`Question: ${question}`, THREAD_NAME_LIMIT),
+    autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
   });
-
-  const messageTs = result.ts!;
-  if (!messageTs) {
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: "Error: Failed to post message to Slack (no message timestamp returned)",
-        },
-      ],
-      isError: true,
-    };
-  }
 
   // Wait for reply with keepalives, cancellation, and optional timeout
-  const reply = await new Promise<string>((resolve) => {
+  const reply = await new Promise<QuestionResult>((resolve) => {
     const pending: PendingQuestion = { resolve };
 
-    function cleanup(sentinel: string) {
+    function cleanup(sentinel: typeof SENTINEL_CANCELLED | typeof SENTINEL_TIMEOUT) {
       if (pending.timeoutId) clearTimeout(pending.timeoutId);
       if (pending.keepaliveId) clearInterval(pending.keepaliveId);
-      pendingQuestions.delete(messageTs);
+      pendingQuestions.delete(thread.id);
       resolve(sentinel);
     }
 
     // Handle client-initiated cancellation via AbortSignal
-    extra.signal.addEventListener("abort", () => cleanup("__CANCELLED__"), {
-      once: true,
-    });
+    const abortHandler = () => cleanup(SENTINEL_CANCELLED);
+    pending.abortHandler = abortHandler;
+    extra.signal.addEventListener("abort", abortHandler, { once: true });
 
     // Progress keepalives every 25 seconds
     pending.keepaliveId = setInterval(() => {
       mcpServer.sendLoggingMessage({
         level: "info",
-        data: "Waiting for human reply on Slack...",
+        data: "Waiting for human reply on Discord...",
       });
     }, 25_000);
 
     // Optional timeout
     if (ASK_TIMEOUT_MS > 0) {
-      pending.timeoutId = setTimeout(() => cleanup("__TIMEOUT__"), ASK_TIMEOUT_MS);
+      pending.timeoutId = setTimeout(() => cleanup(SENTINEL_TIMEOUT), ASK_TIMEOUT_MS);
     }
 
-    pendingQuestions.set(messageTs, pending);
+    pendingQuestions.set(thread.id, pending);
   });
 
-  if (reply === "__CANCELLED__") {
+  if (reply === SENTINEL_CANCELLED) {
     return {
       content: [
         {
@@ -234,12 +198,24 @@ mcpServer.registerTool("ask_human", {
     };
   }
 
-  if (reply === "__TIMEOUT__") {
+  if (reply === SENTINEL_TIMEOUT) {
     return {
       content: [
         {
           type: "text" as const,
           text: `Timed out after ${ASK_TIMEOUT_MS / 1000 / 60} minutes waiting for a human reply.`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  if (reply === SENTINEL_SHUTDOWN) {
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: "Server is shutting down.",
         },
       ],
       isError: true,
@@ -254,11 +230,24 @@ mcpServer.registerTool("ask_human", {
 // --- Startup sequence ---
 
 async function main() {
-  // 1. Start Slack first to ensure WebSocket is ready
-  await slackApp.start();
-  console.error("Slack app started (Socket Mode)");
+  // 1. Start Discord client and wait for it to be ready
+  const readyPromise = new Promise<void>((resolve) => {
+    discordClient.once(Events.ClientReady, () => resolve());
+  });
+  await discordClient.login(DISCORD_BOT_TOKEN);
+  await readyPromise;
+  console.error("Discord client ready");
 
-  // 2. Connect MCP server to stdio transport
+  // 2. Fetch and validate the target channel once at startup
+  const channel = await discordClient.channels.fetch(DISCORD_CHANNEL_ID!);
+  if (!channel || !channel.isTextBased() || channel.isDMBased()) {
+    console.error("Configured DISCORD_CHANNEL_ID is not a valid guild text channel");
+    process.exit(1);
+  }
+  targetChannel = channel as GuildTextBasedChannel;
+  console.error(`Target channel: ${DISCORD_CHANNEL_ID}`);
+
+  // 3. Connect MCP server to stdio transport
   const transport = new StdioServerTransport();
   await mcpServer.connect(transport);
   console.error("MCP server connected (stdio)");
@@ -270,14 +259,14 @@ async function shutdown() {
   console.error("Shutting down...");
 
   // Clean up all pending questions
-  for (const [ts, pending] of pendingQuestions) {
+  for (const [, pending] of pendingQuestions) {
     if (pending.timeoutId) clearTimeout(pending.timeoutId);
     if (pending.keepaliveId) clearInterval(pending.keepaliveId);
-    pending.resolve("(server shutting down)");
-    pendingQuestions.delete(ts);
+    pending.resolve(SENTINEL_SHUTDOWN);
   }
+  pendingQuestions.clear();
 
-  await slackApp.stop();
+  discordClient.destroy();
   await mcpServer.close();
   process.exit(0);
 }
