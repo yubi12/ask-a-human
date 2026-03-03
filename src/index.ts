@@ -17,7 +17,7 @@ import { z } from "zod";
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 const DISCORD_USER_ID = process.env.DISCORD_USER_ID;
-const ASK_TIMEOUT_MS = Number(process.env.ASK_TIMEOUT_MS) || 30 * 60 * 1000; // 30 minutes default
+const ASK_TIMEOUT_MS = Number(process.env.ASK_TIMEOUT_MS) || 5 * 60 * 60 * 1000; // 5 hours default
 
 if (!DISCORD_BOT_TOKEN) {
   console.error("Missing DISCORD_BOT_TOKEN");
