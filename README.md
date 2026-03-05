@@ -2,6 +2,11 @@
 
 An MCP server that lets Claude Code pause and ask you a question on Discord or Slack. You reply in a thread, and Claude continues with your answer.
 
+## Roadmap
+
+- **Threaded conversations** (March 5, 2026) — Allow Claude to continue a conversation in an existing thread rather than creating a new one for each question. This enables back-and-forth dialogue when more context or follow-up is needed.
+- **Telegram Support** (March 5, 2026) — Enable Claude to ask you questions via Telegram!
+
 ## Why
 
 This isn't a chat interface for Claude Code. It's an escape hatch for fully autonomous workflows.
@@ -163,10 +168,6 @@ The question is posted as a plain text message with an @mention and a thread is 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and testing instructions.
-
-## Roadmap
-
-- **Threaded conversations** (March 5, 2026) — Allow Claude to continue a conversation in an existing thread rather than creating a new one for each question. This enables back-and-forth dialogue when more context or follow-up is needed.
 
 ## License
 
