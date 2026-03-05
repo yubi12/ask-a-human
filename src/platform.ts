@@ -2,8 +2,6 @@ import type { QuestionResult } from "./helpers.js";
 
 export interface QuestionParams {
   question: string;
-  context?: string;
-  options?: string[];
 }
 
 export interface Platform {
@@ -33,17 +31,15 @@ export function detectPlatform(): PlatformName {
   const hasSlack = !!process.env.SLACK_BOT_TOKEN;
 
   if (hasDiscord && hasSlack) {
-    console.error(
+    throw new Error(
       "Both DISCORD_BOT_TOKEN and SLACK_BOT_TOKEN are set. Configure one platform per MCP server instance.",
     );
-    process.exit(1);
   }
 
   if (!hasDiscord && !hasSlack) {
-    console.error(
+    throw new Error(
       "Neither DISCORD_BOT_TOKEN nor SLACK_BOT_TOKEN is set. Set environment variables for one platform.",
     );
-    process.exit(1);
   }
 
   return hasDiscord ? "discord" : "slack";

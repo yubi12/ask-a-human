@@ -1,11 +1,8 @@
 import { App, LogLevel } from "@slack/bolt";
-import type { GenericMessageEvent, KnownBlock } from "@slack/types";
-import { truncate, SENTINEL_CANCELLED } from "../helpers.js";
+import type { GenericMessageEvent } from "@slack/types";
+import { SENTINEL_CANCELLED, SENTINEL_SHUTDOWN } from "../helpers.js";
 import type { QuestionResult } from "../helpers.js";
 import type { Platform, QuestionParams } from "../platform.js";
-
-const HEADER_TEXT_LIMIT = 150;
-const SECTION_TEXT_LIMIT = 3000;
 
 interface ReplyResolver {
   resolve: (reply: QuestionResult) => void;
@@ -71,69 +68,19 @@ export class SlackPlatform implements Platform {
   async postQuestion(params: QuestionParams): Promise<string> {
     if (!this.app || !this.channelId) throw new Error("Not connected");
 
-    const blocks: KnownBlock[] = [
-      {
-        type: "header",
-        text: {
-          type: "plain_text",
-          text: truncate("Claude Code needs your input", HEADER_TEXT_LIMIT),
-          emoji: true,
-        },
-      },
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: truncate(params.question, SECTION_TEXT_LIMIT),
-        },
-      },
-    ];
-
-    if (params.context) {
-      blocks.push({
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: truncate(`*Context:* ${params.context}`, SECTION_TEXT_LIMIT),
-        },
-      });
-    }
-
-    if (params.options && params.options.length > 0) {
-      const optionsList = params.options
-        .map((o, i) => `${i + 1}. ${o}`)
-        .join("\n");
-      blocks.push({
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: truncate(`*Options:*\n${optionsList}`, SECTION_TEXT_LIMIT),
-        },
-      });
-    }
-
-    blocks.push({
-      type: "context",
-      elements: [
-        {
-          type: "mrkdwn",
-          text: "Reply in this thread to respond",
-        },
-      ],
-    });
-
-    const mentionText = this.userId
-      ? `<@${this.userId}> Claude Code needs your input`
-      : "Claude Code needs your input";
+    const text = this.userId
+      ? `<@${this.userId}> ${params.question}`
+      : params.question;
 
     const result = await this.app.client.chat.postMessage({
       channel: this.channelId,
-      text: mentionText,
-      blocks,
+      text,
     });
 
-    const messageTs = result.ts!;
-    return `${this.channelId}:${messageTs}`;
+    if (!result.ts) {
+      throw new Error("chat.postMessage did not return a message timestamp");
+    }
+    return `${this.channelId}:${result.ts}`;
   }
 
   waitForReply(key: string): Promise<QuestionResult> {
@@ -151,6 +98,9 @@ export class SlackPlatform implements Platform {
   }
 
   async disconnect(): Promise<void> {
+    for (const [, resolver] of this.replyResolvers) {
+      resolver.resolve(SENTINEL_SHUTDOWN);
+    }
     this.replyResolvers.clear();
     if (this.app) {
       await this.app.stop();

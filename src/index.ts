@@ -28,9 +28,8 @@ interface PendingQuestion {
 
 const pendingQuestions = new Map<string, PendingQuestion>();
 
-// --- Platform detection ---
+// --- Platform ---
 
-const platformName = detectPlatform();
 let platform: Platform;
 
 // --- MCP server setup ---
@@ -42,17 +41,9 @@ const mcpServer = new McpServer(
 
 mcpServer.registerTool("ask_human", {
   title: "Ask a Human",
-  description: `Pause execution and ask a human a question via ${platformName === "discord" ? "Discord" : "Slack"}. The human replies in a thread and execution resumes with their answer.`,
+  description: "Pause execution and ask a human a question. The human replies in a thread and execution resumes with their answer.",
   inputSchema: {
     question: z.string().describe("The specific question to ask the human"),
-    context: z
-      .string()
-      .optional()
-      .describe("Background context to help the human understand the question"),
-    options: z
-      .array(z.string())
-      .optional()
-      .describe("Predefined choices when applicable"),
   },
   annotations: {
     readOnlyHint: false,
@@ -60,13 +51,13 @@ mcpServer.registerTool("ask_human", {
     idempotentHint: false,
     openWorldHint: true,
   },
-}, async ({ question, context, options }, extra) => {
-  const key = await platform.postQuestion({ question, context, options });
+}, async ({ question }, extra) => {
+  const key = await platform.postQuestion({ question });
 
   // Set up cleanup helpers
   const pending: PendingQuestion = { key };
 
-  function cleanup(sentinel: typeof SENTINEL_CANCELLED | typeof SENTINEL_TIMEOUT) {
+  function cleanup() {
     if (pending.timeoutId) clearTimeout(pending.timeoutId);
     if (pending.keepaliveId) clearInterval(pending.keepaliveId);
     pendingQuestions.delete(key);
@@ -74,7 +65,7 @@ mcpServer.registerTool("ask_human", {
   }
 
   // Handle client-initiated cancellation via AbortSignal
-  const abortHandler = () => cleanup(SENTINEL_CANCELLED);
+  const abortHandler = () => cleanup();
   pending.abortHandler = abortHandler;
   extra.signal.addEventListener("abort", abortHandler, { once: true });
 
@@ -87,10 +78,8 @@ mcpServer.registerTool("ask_human", {
   }, 25_000);
 
   // Optional timeout
-  let timeoutResolve: ((result: QuestionResult) => void) | undefined;
   const timeoutPromise = new Promise<QuestionResult>((resolve) => {
     if (ASK_TIMEOUT_MS > 0) {
-      timeoutResolve = resolve;
       pending.timeoutId = setTimeout(() => resolve(SENTINEL_TIMEOUT), ASK_TIMEOUT_MS);
     }
   });
@@ -131,7 +120,7 @@ mcpServer.registerTool("ask_human", {
       content: [
         {
           type: "text" as const,
-          text: `Timed out after ${ASK_TIMEOUT_MS / 1000 / 60} minutes waiting for a human reply.`,
+          text: `Timed out after ${ASK_TIMEOUT_MS < 60000 ? `${Math.round(ASK_TIMEOUT_MS / 1000)} seconds` : `${Math.round(ASK_TIMEOUT_MS / 1000 / 60)} minutes`} waiting for a human reply.`,
         },
       ],
       isError: true,
@@ -158,7 +147,8 @@ mcpServer.registerTool("ask_human", {
 // --- Startup sequence ---
 
 async function main() {
-  // 1. Create and connect the platform
+  // 1. Detect, create, and connect the platform
+  const platformName = detectPlatform();
   platform = await createPlatform(platformName);
   await platform.connect();
 

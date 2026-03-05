@@ -1,17 +1,15 @@
 import {
   Client,
-  EmbedBuilder,
   Events,
   GatewayIntentBits,
   ThreadAutoArchiveDuration,
 } from "discord.js";
 import type { GuildTextBasedChannel } from "discord.js";
-import { truncate, SENTINEL_CANCELLED } from "../helpers.js";
+import { truncate, SENTINEL_CANCELLED, SENTINEL_SHUTDOWN } from "../helpers.js";
 import type { QuestionResult } from "../helpers.js";
 import type { Platform, QuestionParams } from "../platform.js";
 
-const EMBED_DESCRIPTION_LIMIT = 4000;
-const EMBED_FIELD_VALUE_LIMIT = 1000;
+const MESSAGE_CONTENT_LIMIT = 2000;
 const THREAD_NAME_LIMIT = 100;
 
 interface ReplyResolver {
@@ -23,6 +21,7 @@ export class DiscordPlatform implements Platform {
 
   private client: Client;
   private channel: GuildTextBasedChannel | null = null;
+  private userId: string | undefined;
   private replyResolvers = new Map<string, ReplyResolver>();
 
   constructor() {
@@ -72,44 +71,23 @@ export class DiscordPlatform implements Platform {
       );
     }
     this.channel = channel as GuildTextBasedChannel;
+    this.userId = process.env.DISCORD_USER_ID;
     console.error(`Target channel: ${channelId}`);
   }
 
   async postQuestion(params: QuestionParams): Promise<string> {
     if (!this.channel) throw new Error("Not connected");
 
-    const userId = process.env.DISCORD_USER_ID;
+    const content = this.userId
+      ? `<@${this.userId}>\n\n${params.question}`
+      : params.question;
 
-    const embed = new EmbedBuilder()
-      .setColor(0x5865f2)
-      .setTitle("Claude Code needs your input")
-      .setDescription(truncate(params.question, EMBED_DESCRIPTION_LIMIT))
-      .setFooter({ text: "Reply in this thread to respond" });
-
-    if (params.context) {
-      embed.addFields({
-        name: "Context",
-        value: truncate(params.context, EMBED_FIELD_VALUE_LIMIT),
-      });
-    }
-
-    if (params.options && params.options.length > 0) {
-      const optionsList = params.options
-        .map((o, i) => `${i + 1}. ${o}`)
-        .join("\n");
-      embed.addFields({
-        name: "Options",
-        value: truncate(optionsList, EMBED_FIELD_VALUE_LIMIT),
-      });
-    }
-
-    const sentMessage = await this.channel.send({
-      content: userId ? `<@${userId}>` : undefined,
-      embeds: [embed],
-    });
+    const sentMessage = await this.channel.send(
+      truncate(content, MESSAGE_CONTENT_LIMIT),
+    );
 
     const thread = await sentMessage.startThread({
-      name: truncate(`Question: ${params.question}`, THREAD_NAME_LIMIT),
+      name: truncate(params.question, THREAD_NAME_LIMIT),
       autoArchiveDuration: ThreadAutoArchiveDuration.OneDay,
     });
 
@@ -131,6 +109,9 @@ export class DiscordPlatform implements Platform {
   }
 
   async disconnect(): Promise<void> {
+    for (const [, resolver] of this.replyResolvers) {
+      resolver.resolve(SENTINEL_SHUTDOWN);
+    }
     this.replyResolvers.clear();
     this.client.destroy();
   }

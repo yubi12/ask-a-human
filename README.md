@@ -126,18 +126,14 @@ Each instance auto-detects its platform from the environment variables. Setting 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `question` | string | Yes | The question to ask |
-| `context` | string | No | Background context to help you understand the question |
-| `options` | string[] | No | Predefined choices when applicable |
 
-The question is posted as a rich embed (Discord) or Block Kit message (Slack) with an @mention. If `context` or `options` are provided, they appear as additional fields.
+The question is posted as a plain text message with an @mention and a thread is created for your reply. **Important:** You must reply in the thread, not in the channel — only thread replies are picked up by the bot.
 
 **Example:**
 
 ```json
 {
-  "question": "Should I use PostgreSQL or SQLite for the local dev database?",
-  "context": "Building a REST API. Production will use PostgreSQL on Railway.",
-  "options": ["PostgreSQL (match prod)", "SQLite (simpler local setup)"]
+  "question": "Should I use PostgreSQL or SQLite for the local dev database?"
 }
 ```
 
@@ -167,6 +163,10 @@ The question is posted as a rich embed (Discord) or Block Kit message (Slack) wi
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and testing instructions.
+
+## Roadmap
+
+- **Threaded conversations** (March 5, 2026) — Allow Claude to continue a conversation in an existing thread rather than creating a new one for each question. This enables back-and-forth dialogue when more context or follow-up is needed.
 
 ## License
 
