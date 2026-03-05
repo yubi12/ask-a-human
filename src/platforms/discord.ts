@@ -78,6 +78,17 @@ export class DiscordPlatform implements Platform {
   async postQuestion(params: QuestionParams): Promise<string> {
     if (!this.channel) throw new Error("Not connected");
 
+    // Follow-up in existing thread (skip @mention — user is already engaged)
+    if (params.thread_id) {
+      const thread = await this.client.channels.fetch(params.thread_id);
+      if (!thread || !thread.isThread()) {
+        throw new Error(`Invalid thread_id: ${params.thread_id} is not a thread`);
+      }
+      await thread.send(truncate(params.question, MESSAGE_CONTENT_LIMIT));
+      return params.thread_id;
+    }
+
+    // New question — post to channel and start a thread
     const content = this.userId
       ? `<@${this.userId}>\n\n${params.question}`
       : params.question;

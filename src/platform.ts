@@ -2,6 +2,7 @@ import type { QuestionResult } from "./helpers.js";
 
 export interface QuestionParams {
   question: string;
+  thread_id?: string;
 }
 
 export interface Platform {
