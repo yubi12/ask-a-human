@@ -50,7 +50,7 @@ Choose one platform per MCP server instance. The platform is auto-detected from 
 #### 3. Add to Claude Code
 
 ```sh
-claude mcp add ask-a-human \
+claude mcp add ask-a-human-discord \
   -e DISCORD_BOT_TOKEN=your-bot-token \
   -e DISCORD_CHANNEL_ID=your-channel-id \
   -e DISCORD_USER_ID=your-user-id \
@@ -100,29 +100,13 @@ claude mcp add ask-a-human \
 #### 6. Add to Claude Code
 
 ```sh
-claude mcp add ask-a-human \
+claude mcp add ask-a-human-slack \
   -e SLACK_BOT_TOKEN=xoxb-your-bot-token \
   -e SLACK_APP_TOKEN=xapp-your-app-token \
   -e SLACK_CHANNEL_ID=your-channel-id \
   -e SLACK_USER_ID=your-user-id \
   -- npx ask-a-human
 ```
-
-### Multiple platforms
-
-To use both Discord and Slack, add separate MCP server entries with different names:
-
-```sh
-claude mcp add ask-a-human-discord \
-  -e DISCORD_BOT_TOKEN=... -e DISCORD_CHANNEL_ID=... -e DISCORD_USER_ID=... \
-  -- npx ask-a-human
-
-claude mcp add ask-a-human-slack \
-  -e SLACK_BOT_TOKEN=... -e SLACK_APP_TOKEN=... -e SLACK_CHANNEL_ID=... -e SLACK_USER_ID=... \
-  -- npx ask-a-human
-```
-
-Each instance auto-detects its platform from the environment variables. Setting both Discord and Slack tokens in the same instance will produce an error.
 
 ## Tool
 
