@@ -25,25 +25,30 @@ export interface Platform {
   disconnect(): Promise<void>;
 }
 
-export type PlatformName = "discord" | "slack";
+export type PlatformName = "discord" | "slack" | "telegram";
 
 export function detectPlatform(): PlatformName {
   const hasDiscord = !!process.env.DISCORD_BOT_TOKEN;
   const hasSlack = !!process.env.SLACK_BOT_TOKEN;
+  const hasTelegram = !!process.env.TELEGRAM_BOT_TOKEN;
 
-  if (hasDiscord && hasSlack) {
+  const count = [hasDiscord, hasSlack, hasTelegram].filter(Boolean).length;
+
+  if (count > 1) {
     throw new Error(
-      "Both DISCORD_BOT_TOKEN and SLACK_BOT_TOKEN are set. Configure one platform per MCP server instance.",
+      "Multiple platform tokens are set. Configure one platform per MCP server instance.",
     );
   }
 
-  if (!hasDiscord && !hasSlack) {
+  if (count === 0) {
     throw new Error(
-      "Neither DISCORD_BOT_TOKEN nor SLACK_BOT_TOKEN is set. Set environment variables for one platform.",
+      "No platform token is set. Set DISCORD_BOT_TOKEN, SLACK_BOT_TOKEN, or TELEGRAM_BOT_TOKEN.",
     );
   }
 
-  return hasDiscord ? "discord" : "slack";
+  if (hasDiscord) return "discord";
+  if (hasSlack) return "slack";
+  return "telegram";
 }
 
 export async function createPlatform(name: PlatformName): Promise<Platform> {
@@ -55,6 +60,10 @@ export async function createPlatform(name: PlatformName): Promise<Platform> {
     case "slack": {
       const { SlackPlatform } = await import("./platforms/slack.js");
       return new SlackPlatform();
+    }
+    case "telegram": {
+      const { TelegramPlatform } = await import("./platforms/telegram.js");
+      return new TelegramPlatform();
     }
   }
 }

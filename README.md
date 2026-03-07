@@ -1,25 +1,27 @@
 # ask-a-human
 
-An MCP server that lets Claude Code pause and ask you a question on Discord or Slack. You reply in a thread, and Claude continues with your answer.
+An MCP server that lets Claude Code pause and ask you a question on Discord, Slack, or Telegram. You reply in a thread (or reply-to on Telegram), and Claude continues with your answer.
 
 ## Roadmap
 
 - **Telegram Support** (March 5, 2026) — Enable Claude to ask you questions via Telegram!
+- **Threaded conversations** (March 5, 2026) — Allow Claude to continue a conversation in an existing thread rather than creating a new one for each question. This enables back-and-forth dialogue when more context or follow-up is needed.
+
 
 ## Why
 
 This isn't a chat interface for Claude Code. It's an escape hatch for fully autonomous workflows.
 
-When you let Claude Code run on its own refactoring a codebase, building a feature end-to-end, or debugging a complex issue it will occasionally hit a fork in the road: a trade-off you didn't anticipate, a design decision with no obvious right answer, or a critical juncture where moving forward without your input could mean wasted work. In those moments, Claude can choose to reach out to you on Discord or Slack, get your steer, and continue rather than guessing wrong or stopping entirely. It's meant for the agent to reach you if it really needs to, and not for every little thing.
+When you let Claude Code run on its own refactoring a codebase, building a feature end-to-end, or debugging a complex issue it will occasionally hit a fork in the road: a trade-off you didn't anticipate, a design decision with no obvious right answer, or a critical juncture where moving forward without your input could mean wasted work. In those moments, Claude can choose to reach out to you on Discord, Slack, or Telegram, get your steer, and continue rather than guessing wrong or stopping entirely. It's meant for the agent to reach you if it really needs to, and not for every little thing.
 
 The goal is to let you stay away from the terminal while Claude works, and only get pulled in when it genuinely matters.
 
 ## How it works
 
 1. Claude Code calls the `ask_human` tool with a question
-2. The bot posts the question to your Discord channel or Slack channel and @mentions you
-3. A thread is created for the question
-4. Claude Code waits until you reply in the thread
+2. The bot posts the question to your Discord channel, Slack channel, or Telegram chat and @mentions you
+3. A thread is created for the question (on Telegram, the bot uses reply-to instead)
+4. Claude Code waits until you reply in the thread (or reply-to the bot's message on Telegram)
 5. Your reply is returned to Claude (along with a `thread_id`) and it continues working
 6. If Claude needs to follow up, it calls `ask_human` again with the same `thread_id` to continue the conversation in the same thread
 
@@ -108,6 +110,37 @@ claude mcp add ask-a-human-slack \
   -- npx ask-a-human
 ```
 
+### Telegram
+
+#### 1. Create a Telegram bot
+
+1. Open Telegram and search for [@BotFather](https://t.me/BotFather)
+2. Send `/newbot` and follow the prompts to name your bot
+3. Copy the token BotFather gives you — this is your `TELEGRAM_BOT_TOKEN`
+
+#### 2. Get your Telegram chat ID
+
+1. Add your bot to the chat (group or private conversation) where you want questions posted
+2. Send a message in that chat
+3. Open `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates` in a browser
+4. Look for `"chat":{"id":...}` — this number is your `TELEGRAM_CHAT_ID`
+
+#### 3. Get your user ID (optional, for @mentions)
+
+1. Search for [@userinfobot](https://t.me/userinfobot) on Telegram
+2. Send it any message — it replies with your user ID
+3. This is your `TELEGRAM_USER_ID`
+
+#### 4. Add to Claude Code
+
+```sh
+claude mcp add ask-a-human-telegram \
+  -e TELEGRAM_BOT_TOKEN=your-bot-token \
+  -e TELEGRAM_CHAT_ID=your-chat-id \
+  -e TELEGRAM_USER_ID=your-user-id \
+  -- npx ask-a-human
+```
+
 ## Tool
 
 ### `ask_human`
@@ -117,7 +150,7 @@ claude mcp add ask-a-human-slack \
 | `question` | string | Yes | The question to ask |
 | `thread_id` | string | No | Thread ID from a previous response to continue the conversation in the same thread |
 
-The question is posted as a plain text message with an @mention and a thread is created for your reply. **Important:** You must reply in the thread, not in the channel — only thread replies are picked up by the bot.
+The question is posted as a plain text message with an @mention and a thread is created for your reply. **Important:** You must reply in the thread (or reply-to the bot's message on Telegram), not in the channel — only thread/reply-to replies are picked up by the bot.
 
 Every successful response includes a `thread_id` at the end (e.g. `[thread_id: 123456789]`). Pass this back in a subsequent call to continue the conversation in the same thread instead of creating a new one.
 
@@ -149,17 +182,20 @@ Every successful response includes a `thread_id` at the end (e.g. `[thread_id: 1
 | `SLACK_APP_TOKEN` | Slack | Yes | — | App-Level Token (`xapp-`) with `connections:write` |
 | `SLACK_CHANNEL_ID` | Slack | Yes | — | Channel ID where questions are posted |
 | `SLACK_USER_ID` | Slack | No | — | Your member ID for @mentions |
-| `ASK_TIMEOUT_MS` | Both | No | `18000000` | Timeout in milliseconds (default: 5 hours, `0` for no timeout) |
+| `TELEGRAM_BOT_TOKEN` | Telegram | Yes | — | Bot token from BotFather |
+| `TELEGRAM_CHAT_ID` | Telegram | Yes | — | Chat ID where questions are posted |
+| `TELEGRAM_USER_ID` | Telegram | No | — | Your user ID for @mentions |
+| `ASK_TIMEOUT_MS` | All | No | `18000000` | Timeout in milliseconds (default: 5 hours, `0` for no timeout) |
 
 ## Edge cases
 
 - **Multiple replies**: First thread reply wins; subsequent replies are ignored
 - **Empty messages**: Returned as `(empty message)`
 - **Bot messages**: Filtered out automatically
-- **Disconnections**: Both Discord.js and Slack Bolt handle reconnection automatically; pending questions persist in memory
+- **Disconnections**: Discord.js, Slack Bolt, and grammY handle reconnection automatically; pending questions persist in memory
 - **Shutdown**: Pending questions return an error; cleanup is graceful on SIGINT/SIGTERM
-- **Both platforms configured**: Exits with a clear error — configure one platform per instance
-- **Neither platform configured**: Exits with a clear error
+- **Multiple platforms configured**: Exits with a clear error — configure one platform per instance
+- **No platform configured**: Exits with a clear error
 
 ## Contributing
 
