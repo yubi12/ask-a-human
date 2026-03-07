@@ -1,6 +1,6 @@
 {
   "name": "ask-a-human",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "description": "MCP server that lets Claude Code pause and ask humans for input via Discord or Slack",
   "type": "module",
   "main": "dist/index.js",
