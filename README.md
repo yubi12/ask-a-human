@@ -4,7 +4,10 @@ An MCP server that lets Claude Code pause and ask you a question on Discord, Sla
 
 ## Roadmap
 
+- **Telegram Support** (March 5, 2026) — Enable Claude to ask you questions via Telegram!
 - **Threaded conversations** (March 5, 2026) — Allow Claude to continue a conversation in an existing thread rather than creating a new one for each question. This enables back-and-forth dialogue when more context or follow-up is needed.
+
+
 ## Why
 
 This isn't a chat interface for Claude Code. It's an escape hatch for fully autonomous workflows.
@@ -19,7 +22,8 @@ The goal is to let you stay away from the terminal while Claude works, and only 
 2. The bot posts the question to your Discord channel, Slack channel, or Telegram chat and @mentions you
 3. A thread is created for the question (on Telegram, the bot uses reply-to instead)
 4. Claude Code waits until you reply in the thread (or reply-to the bot's message on Telegram)
-5. Your reply is returned to Claude and it continues working
+5. Your reply is returned to Claude (along with a `thread_id`) and it continues working
+6. If Claude needs to follow up, it calls `ask_human` again with the same `thread_id` to continue the conversation in the same thread
 
 ## Setup
 
@@ -36,7 +40,7 @@ Choose one platform per MCP server instance. The platform is auto-detected from 
 5. Enable **Message Content Intent** (scroll down on the Bot page)
 6. Go to **OAuth2 > URL Generator**
 7. Check the `bot` scope
-8. Check these permissions: **Send Messages**, **Create Public Threads**, **Read Message History**, **Embed Links**
+8. Check these permissions: **Send Messages**, **Send Messages in Threads**, **Create Public Threads**, **Read Message History**, **Embed Links**
 9. Copy the generated URL and open it to invite the bot to your server
 
 #### 2. Get your Discord IDs
@@ -144,14 +148,26 @@ claude mcp add ask-a-human-telegram \
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `question` | string | Yes | The question to ask |
+| `thread_id` | string | No | Thread ID from a previous response to continue the conversation in the same thread |
 
 The question is posted as a plain text message with an @mention and a thread is created for your reply. **Important:** You must reply in the thread (or reply-to the bot's message on Telegram), not in the channel — only thread/reply-to replies are picked up by the bot.
 
-**Example:**
+Every successful response includes a `thread_id` at the end (e.g. `[thread_id: 123456789]`). Pass this back in a subsequent call to continue the conversation in the same thread instead of creating a new one.
+
+**New question:**
 
 ```json
 {
   "question": "Should I use PostgreSQL or SQLite for the local dev database?"
+}
+```
+
+**Follow-up in the same thread:**
+
+```json
+{
+  "question": "Got it — PostgreSQL. Should I use Prisma or Drizzle as the ORM?",
+  "thread_id": "123456789"
 }
 ```
 

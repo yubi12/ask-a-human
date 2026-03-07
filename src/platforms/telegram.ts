@@ -75,18 +75,15 @@ export class TelegramPlatform implements Platform {
     if (!this.bot || !this.chatId) throw new Error("Not connected");
 
     // Follow-up in existing thread (skip @mention — user is already engaged)
-    // thread_id support comes from PR #5; access via cast until merged
-    const threadId = (params as QuestionParams & { thread_id?: string })
-      .thread_id;
-    if (threadId) {
-      const colonIdx = threadId.indexOf(":");
+    if (params.thread_id) {
+      const colonIdx = params.thread_id.indexOf(":");
       if (colonIdx === -1) {
         throw new Error(
           'Invalid thread_id format: expected "chatId:messageId"',
         );
       }
-      const chatId = threadId.slice(0, colonIdx);
-      const messageId = Number(threadId.slice(colonIdx + 1));
+      const chatId = params.thread_id.slice(0, colonIdx);
+      const messageId = Number(params.thread_id.slice(colonIdx + 1));
       if (isNaN(messageId)) {
         throw new Error("Invalid message ID in thread_id");
       }

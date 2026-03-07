@@ -35,15 +35,16 @@ let platform: Platform;
 // --- MCP server setup ---
 
 const mcpServer = new McpServer(
-  { name: "ask-a-human", version: "0.2.0" },
+  { name: "ask-a-human", version: "0.3.0" },
   { capabilities: { logging: {}, tools: {} } },
 );
 
 mcpServer.registerTool("ask_human", {
   title: "Ask a Human",
-  description: "Pause execution and ask a human a question. The human replies in a thread and execution resumes with their answer.",
+  description: "Pause execution and ask a human a question. The human replies in a thread and execution resumes with their answer. Pass thread_id from a previous response to continue the conversation in the same thread.",
   inputSchema: {
     question: z.string().describe("The specific question to ask the human"),
+    thread_id: z.string().optional().describe("Thread ID from a previous ask_human response to continue the conversation in the same thread. Omit to start a new conversation."),
   },
   annotations: {
     readOnlyHint: false,
@@ -51,8 +52,21 @@ mcpServer.registerTool("ask_human", {
     idempotentHint: false,
     openWorldHint: true,
   },
-}, async ({ question }, extra) => {
-  const key = await platform.postQuestion({ question });
+}, async ({ question, thread_id }, extra) => {
+  let key: string;
+  try {
+    key = await platform.postQuestion({ question, thread_id });
+  } catch (err) {
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `Failed to post question: ${err instanceof Error ? err.message : String(err)}`,
+        },
+      ],
+      isError: true,
+    };
+  }
 
   // Set up cleanup helpers
   const pending: PendingQuestion = { key };
@@ -140,7 +154,7 @@ mcpServer.registerTool("ask_human", {
   }
 
   return {
-    content: [{ type: "text" as const, text: reply }],
+    content: [{ type: "text" as const, text: `${reply}\n\n[thread_id: ${key}]` }],
   };
 });
 

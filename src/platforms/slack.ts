@@ -68,6 +68,23 @@ export class SlackPlatform implements Platform {
   async postQuestion(params: QuestionParams): Promise<string> {
     if (!this.app || !this.channelId) throw new Error("Not connected");
 
+    // Follow-up in existing thread (skip @mention — user is already engaged)
+    if (params.thread_id) {
+      const colonIdx = params.thread_id.indexOf(":");
+      if (colonIdx === -1) {
+        throw new Error(`Invalid thread_id format: expected "channel:timestamp"`);
+      }
+      const channel = params.thread_id.slice(0, colonIdx);
+      const threadTs = params.thread_id.slice(colonIdx + 1);
+      await this.app.client.chat.postMessage({
+        channel,
+        text: params.question,
+        thread_ts: threadTs,
+      });
+      return params.thread_id;
+    }
+
+    // New question — post to channel (becomes thread parent)
     const text = this.userId
       ? `<@${this.userId}> ${params.question}`
       : params.question;
